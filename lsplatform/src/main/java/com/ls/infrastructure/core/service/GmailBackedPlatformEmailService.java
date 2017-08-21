@@ -1,0 +1,83 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements. See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership. The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package com.ls.infrastructure.core.service;
+
+import org.apache.commons.mail.DefaultAuthenticator;
+import org.apache.commons.mail.Email;
+import org.apache.commons.mail.EmailException;
+import org.apache.commons.mail.SimpleEmail;
+import com.ls.infrastructure.configuration.data.SMTPCredentialsData;
+import com.ls.infrastructure.configuration.service.ExternalServicesPropertiesReadPlatformService;
+import com.ls.infrastructure.core.domain.EmailDetail;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service
+public class GmailBackedPlatformEmailService implements PlatformEmailService {
+	
+	private final ExternalServicesPropertiesReadPlatformService externalServicesReadPlatformService;
+	
+	@Autowired
+	public GmailBackedPlatformEmailService(final ExternalServicesPropertiesReadPlatformService externalServicesReadPlatformService){
+		this.externalServicesReadPlatformService = externalServicesReadPlatformService;
+	}
+
+    @Override
+    public void sendToUserAccount(final EmailDetail emailDetail, final String unencodedPassword) {
+        final Email email = new SimpleEmail();
+        final SMTPCredentialsData smtpCredentialsData = this.externalServicesReadPlatformService.getSMTPCredentials();
+        final String authuserName = smtpCredentialsData.getUsername();
+
+        final String authuser = smtpCredentialsData.getUsername();
+        final String authpwd = smtpCredentialsData.getPassword();
+
+        // Very Important, Don't use email.setAuthentication()
+        email.setAuthenticator(new DefaultAuthenticator(authuser, authpwd));
+        email.setDebug(false); // true if you want to debug
+        email.setHostName(smtpCredentialsData.getHost());
+        try {
+        	if(smtpCredentialsData.isUseTLS()){
+        		email.getMailSession().getProperties().put("mail.smtp.starttls.enable", "true");
+        	}
+        	email.setFrom(authuser, authuserName);
+
+            final StringBuilder subjectBuilder = new StringBuilder().append("Welcome ").append(emailDetail.getContactName())
+                    .append(" to ").append(emailDetail.getOrganisationName());
+
+            email.setSubject(subjectBuilder.toString());
+
+            final String sendToEmail = emailDetail.getAddress();
+
+            final StringBuilder messageBuilder = new StringBuilder().append("You are receiving this email as your email account: ")
+                    .append(sendToEmail).append(" has being used to create a user account for an organisation named [")
+                    .append(emailDetail.getOrganisationName()).append("] on Mifos.\n")
+                    .append("You can login using the following credentials:\nusername: ").append(emailDetail.getUsername()).append("\n")
+                    .append("password: ").append(unencodedPassword).append("\n")
+                    .append("You must change this password upon first log in using Uppercase, Lowercase, number and character.\n")
+                    .append("Thank you and welcome to the organisation.");
+
+            email.setMsg(messageBuilder.toString());
+
+            email.addTo(sendToEmail, emailDetail.getContactName());
+            email.send();
+        } catch (final EmailException e) {
+            throw new PlatformEmailSendException(e);
+        }
+    }
+}
